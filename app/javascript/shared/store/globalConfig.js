@@ -27,6 +27,7 @@ const {
   DISABLE_META_MESSAGE_SENDING: disableMetaMessageSending,
   DEPLOYMENT_ENV: deploymentEnv,
   ACTIVE_PLATFORM_BANNERS: activePlatformBanners,
+  AUTH_TYPE: authType,
 } = window.globalConfig || {};
 
 const state = {
@@ -40,6 +41,11 @@ const state = {
   createNewAccountFromDashboard,
   directUploadsEnabled: parseBoolean(directUploadsEnabled),
   disableUserProfileUpdate: parseBoolean(disableUserProfileUpdate),
+  authType,
+  // audit row 15. When Cognito owns identity, every local credential surface must
+  // hide or hard-redirect — a half-gated UI still leaves a self-lockout path.
+  // Injected per request by DashboardController#app_config, never baked.
+  isSSOEnabled: authType === 'SSO',
   disableMetaInboxCreation: parseBoolean(disableMetaInboxCreation),
   disableMetaMessageSending: parseBoolean(disableMetaMessageSending),
   displayManifest,

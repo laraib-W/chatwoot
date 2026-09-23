@@ -7,7 +7,9 @@ DeviseTokenAuth.setup do |config|
 
   # By default, users will need to re-authenticate after 2 weeks. This setting
   # determines how long tokens will remain valid after they are issued.
-  config.token_lifespan = 2.months
+  # Wired to the bundle-wide canonical env so every app expires together.
+  # Upstream default is 2.months. audit row 9
+  config.token_lifespan = ENV.fetch('SESSION_TTL_SECONDS', nil).presence&.to_i&.seconds || 2.months
 
   # By default, old tokens are not invalidated when password is changed.
   # Enable this option if you want to make passwords updates to logout other devices.

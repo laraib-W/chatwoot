@@ -13,20 +13,21 @@ export default {
     return axios.get(urlData.url);
   },
   logout() {
-    const urlData = endPoints('logout');
-    const fetchPromise = new Promise((resolve, reject) => {
-      axios
-        .delete(urlData.url)
-        .then(response => {
-          deleteIndexedDBOnLogout();
-          clearCookiesOnLogout();
-          resolve(response);
-        })
-        .catch(error => {
-          reject(error);
-        });
-    });
-    return fetchPromise;
+    // audit row 14 — per-app logout is NAVIGATION-ONLY.
+    //
+    // The DELETE /auth/sign_out call was removed deliberately: it cleared the
+    // Rails-side token, but the next request would immediately re-establish a
+    // session from X-Auth-Request-Email, so the user-visible result was identical
+    // while the request added a failure mode. Real sign-out is the portal's
+    // "logout all", which clears the shared _oauth2_proxy cookie.
+    //
+    // The portal URL is deployer-supplied and already handled by
+    // clearCookiesOnLogout(), which reads globalConfig.LOGOUT_REDIRECT_LINK and
+    // navigates (store/utils/api.js:91-93). Never derive the host by rewriting the
+    // hostname, and never point at /oauth2/sign_out.
+    deleteIndexedDBOnLogout();
+    clearCookiesOnLogout();
+    return Promise.resolve();
   },
   hasAuthCookie() {
     return !!Cookies.get('cw_d_session_info');

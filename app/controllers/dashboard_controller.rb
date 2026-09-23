@@ -1,6 +1,11 @@
 class DashboardController < ActionController::Base
   include SwitchLocale
   include PortalHomeData
+  include MpassSessionReconciliation
+
+  # Rule 2, Path A — must run before the SPA is served, so user B never sees a
+  # document rendered under user A's identity. audit row 20
+  before_action :reconcile_mpass_identity, only: [:index]
 
   GLOBAL_CONFIG_KEYS = %w[
     LOGO
@@ -50,6 +55,13 @@ class DashboardController < ActionController::Base
     @global_config = GlobalConfig.get(*GLOBAL_CONFIG_KEYS).merge(app_config)
   end
 
+  # Rule 2, Path A. Re-enters the handoff, which mints a token for the incoming
+  # identity and redirects to /app/login?email=&sso_auth_token= — the SPA's existing
+  # RouteHelper.js:23-27 clears the previous user's cookie before submitting.
+  def reconcile_mpass_identity
+    redirect_to '/auth/sso/proxy-login' if mpass_identity_mismatch?
+  end
+
   def set_dashboard_scripts
     @dashboard_scripts = sensitive_path? ? nil : GlobalConfig.get_value('DASHBOARD_SCRIPTS')
   end
@@ -86,6 +98,10 @@ class DashboardController < ActionController::Base
       AZURE_APP_ID: GlobalConfigService.load('AZURE_APP_ID', ''),
       GIT_SHA: GIT_HASH,
       ALLOWED_LOGIN_METHODS: allowed_login_methods,
+      # Read from ENV on every request, never via GlobalConfig: GlobalConfigService
+      # persists ENV into InstallationConfig on first read, which would make
+      # AUTH_TYPE sticky in the database and survive an env change. audit rows 5, 8
+      AUTH_TYPE: ENV.fetch('AUTH_TYPE', ''),
       ACTIVE_PLATFORM_BANNERS: active_platform_banners
     }
   end
@@ -97,6 +113,10 @@ class DashboardController < ActionController::Base
   end
 
   def allowed_login_methods
+    # Under SSO the only entry point is the ForwardAuth handoff; offering any local
+    # or federated method here is a second identity path Moneta does not control.
+    return ['sso'] if ENV.fetch('AUTH_TYPE', nil) == 'SSO'
+
     methods = ['email']
     methods << 'google_oauth' if GlobalConfigService.load('ENABLE_GOOGLE_OAUTH_LOGIN', 'true').to_s != 'false'
     methods << 'saml' if ChatwootHub.pricing_plan != 'community' && GlobalConfigService.load('ENABLE_SAML_SSO_LOGIN', 'true').to_s != 'false'

@@ -1,0 +1,56 @@
+# frozen_string_literal: true
+
+# GET /auth/sso/proxy-login — the ForwardAuth handoff.
+#
+# Trust chain: Traefik strips any client-supplied X-Auth-Request-* header, then
+# oauth2-proxy re-adds verified values only for a valid upstream OIDC session.
+# This controller therefore trusts X-Auth-Request-Email without verifying it, which
+# is safe ONLY while the three invariants in sso-rules-moneta/openspec/project.md
+# hold. The AUTH_TYPE gate below is the last line of defence if they stop holding.
+#
+# Flow: read proxy identity -> resolve-or-provision -> mint a 5-minute single-use
+# sso_auth_token -> 302 to /app/login?email=&sso_auth_token=. The existing SPA login
+# route consumes it: RouteHelper.js:23-27 clears the previous user's session cookie,
+# Index.vue:111-114 auto-submits, and DeviseOverrides::SessionsController issues the
+# devise_token_auth headers. No new credential machinery, no new frontend code.
+class Sso::ProxyLoginController < ApplicationController
+  skip_before_action :set_current_user, raise: false
+
+  before_action :ensure_sso_mode
+
+  def create
+    email = Mpass::ProxyIdentity.email(request)
+    return redirect_with_error if email.blank?
+
+    user = MpassUserBuilder.new(
+      email: email,
+      display_name: Mpass::ProxyIdentity.display_name(request, email)
+    ).perform
+
+    return redirect_with_error if user.blank? || !user.persisted?
+
+    redirect_to handoff_url(user), allow_other_host: true
+  end
+
+  private
+
+  # Audit row 6: the backend must refuse identity headers when it is not deployed
+  # behind ForwardAuth. Without this a non-SSO deployment trusts headers from any
+  # caller that can reach the port.
+  def ensure_sso_mode
+    head :not_found unless ENV.fetch('AUTH_TYPE', nil) == 'SSO'
+  end
+
+  def handoff_url(user)
+    "#{frontend_url}/app/login?email=#{ERB::Util.url_encode(user.email)}" \
+      "&sso_auth_token=#{user.generate_sso_auth_token}"
+  end
+
+  def redirect_with_error
+    redirect_to "#{frontend_url}/app/login?error=sso_failed", allow_other_host: true
+  end
+
+  def frontend_url
+    ENV.fetch('FRONTEND_URL', '')
+  end
+end

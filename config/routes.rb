@@ -16,6 +16,11 @@ Rails.application.routes.draw do
   else
     root to: 'dashboard#index'
 
+    # ForwardAuth handoff. Outside the /api namespace so it serves a 302 rather
+    # than JSON, and reachable without CSRF (ApplicationController already skips
+    # verify_authenticity_token). Gated on AUTH_TYPE=SSO inside the controller.
+    get '/auth/sso/proxy-login', to: 'sso/proxy_login#create'
+
     get '/app', to: 'dashboard#index'
     get '/app/*params', to: 'dashboard#index'
     get '/app/accounts/:account_id/settings/inboxes/new/twitter', to: 'dashboard#index', as: 'app_new_twitter_inbox'

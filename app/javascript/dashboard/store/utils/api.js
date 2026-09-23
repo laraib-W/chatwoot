@@ -30,8 +30,15 @@ export const getHeaderExpiry = response =>
 
 export const setAuthCredentials = response => {
   const expiryDate = getHeaderExpiry(response);
+  // audit row 12 — `secure` is DERIVED, never hardcoded: hardcoding true breaks
+  // local http dev, hardcoding false ships an insecure cookie to production.
+  // `sameSite: 'Lax'` is already set globally (Cookies.defaults, :16).
+  // `httpOnly` is impossible here by design — the SPA must read this cookie to
+  // build its request headers. That tradeoff is recorded in
+  // sso-rules-moneta/apps/chatwoot/security.md rather than left as a silent gap.
   Cookies.set('cw_d_session_info', JSON.stringify(response.headers), {
     expires: differenceInDays(expiryDate, new Date()),
+    secure: window.location.protocol === 'https:',
   });
   setUser(response.data.data, expiryDate);
 };
