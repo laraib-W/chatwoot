@@ -10,6 +10,8 @@
 // seeing it to clear the previous user's cookie (design.md §2). Blocking it would
 // break login entirely — the regression guard lives in specs/ssoRouteGuard.spec.js
 // and in the upstream RouteHelper.spec.js case at :21.
+import { isSSOMode } from 'shared/helpers/ssoMode';
+
 export const SSO_BLOCKED_ROUTE_NAMES = [
   'auth_signup',
   'auth_reset_password',
@@ -19,5 +21,4 @@ export const SSO_BLOCKED_ROUTE_NAMES = [
 ];
 
 export const isSSOBlockedRoute = to =>
-  window.globalConfig?.AUTH_TYPE === 'SSO' &&
-  SSO_BLOCKED_ROUTE_NAMES.includes(to?.name);
+  isSSOMode() && SSO_BLOCKED_ROUTE_NAMES.includes(to?.name);

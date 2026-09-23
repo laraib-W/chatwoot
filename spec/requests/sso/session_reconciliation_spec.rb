@@ -40,6 +40,19 @@ RSpec.describe 'mPass session reconciliation', type: :request do
       end
     end
 
+    # Regression: /app/login is dashboard#index too, so the handoff lands back on a
+    # reconciled action while the previous user's cookie is still set — the SPA
+    # clears it only once this document has loaded. Reconciling it bounced the
+    # browser between /app/login and the handoff until it gave up.
+    it 'serves the handoff landing page instead of redirecting into it again' do
+      with_session_cookie('a@askii.ai')
+      with_modified_env(**sso_env) do
+        get '/app/login?email=b%40askii.ai&sso_auth_token=sometoken',
+            headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
+        expect(response).to have_http_status(:success)
+      end
+    end
+
     it 'serves normally when there is no session cookie at all (first visit)' do
       with_modified_env(**sso_env) do
         get '/app', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
@@ -71,6 +84,26 @@ RSpec.describe 'mPass session reconciliation', type: :request do
             headers: token_a.merge('X-Auth-Request-Email' => 'b@askii.ai')
         expect(response).to have_http_status(:unauthorized)
         expect(user_a.reload.tokens.keys).not_to include(token_a['client'])
+      end
+    end
+
+    # The SPA hard-navigates on this header, not on the bare 401 — Chatwoot answers
+    # 401 for ordinary permission denials too (Pundit::NotAuthorizedError), and
+    # those must not log an agent out.
+    it 'marks the flush with a header so the SPA can tell it apart from a permission 401' do
+      with_modified_env(**sso_env) do
+        get "/api/v1/accounts/#{account.id}/conversations",
+            headers: token_a.merge('X-Auth-Request-Email' => 'b@askii.ai')
+        expect(response.headers['X-Mpass-Session-Flushed']).to eq('true')
+      end
+    end
+
+    it 'does not mark an ordinary permission 401' do
+      with_modified_env(**sso_env) do
+        # An agent reaching an administrator-only endpoint.
+        get "/api/v2/accounts/#{account.id}/reports/conversations",
+            headers: token_a.merge('X-Auth-Request-Email' => 'a@askii.ai')
+        expect(response.headers['X-Mpass-Session-Flushed']).to be_nil
       end
     end
 

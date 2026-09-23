@@ -29,7 +29,9 @@ class Sso::ProxyLoginController < ApplicationController
 
     return redirect_with_error if user.blank? || !user.persisted?
 
-    redirect_to handoff_url(user), allow_other_host: true
+    # Chatwoot's own handoff URL builder (SsoAuthenticatable#generate_sso_link) —
+    # same 5-minute single-use token the SAML and OAuth callbacks hand off with.
+    redirect_to user.generate_sso_link, allow_other_host: true
   end
 
   private
@@ -39,11 +41,6 @@ class Sso::ProxyLoginController < ApplicationController
   # caller that can reach the port.
   def ensure_sso_mode
     head :not_found unless ENV.fetch('AUTH_TYPE', nil) == 'SSO'
-  end
-
-  def handoff_url(user)
-    "#{frontend_url}/app/login?email=#{ERB::Util.url_encode(user.email)}" \
-      "&sso_auth_token=#{user.generate_sso_auth_token}"
   end
 
   def redirect_with_error

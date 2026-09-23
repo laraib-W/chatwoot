@@ -19,6 +19,9 @@
 module MpassSessionReconciliation
   extend ActiveSupport::Concern
 
+  # Mirrored by SSO_FLUSH_HEADER in shared/helpers/ssoMode.js.
+  SSO_FLUSH_HEADER = 'X-Mpass-Session-Flushed'
+
   private
 
   def mpass_identity_mismatch?

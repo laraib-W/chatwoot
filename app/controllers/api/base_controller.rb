@@ -25,6 +25,11 @@ class Api::BaseController < ApplicationController
       current_user.tokens.delete(client_id)
       current_user.save!
     end
+    # Marks this 401 as a Rule 2 flush. The SPA keys its hard-navigation on the
+    # header rather than the status, because Chatwoot also answers 401 for ordinary
+    # permission denials (Pundit::NotAuthorizedError) — reacting to those would log
+    # an agent out for opening an admin-only screen.
+    response.headers[SSO_FLUSH_HEADER] = 'true'
     head :unauthorized
   end
 

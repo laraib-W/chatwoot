@@ -59,6 +59,12 @@ class DashboardController < ActionController::Base
   # identity and redirects to /app/login?email=&sso_auth_token= — the SPA's existing
   # RouteHelper.js:23-27 clears the previous user's cookie before submitting.
   def reconcile_mpass_identity
+    # The handoff lands back here on /app/login (dashboard#index serves it), still
+    # carrying the PREVIOUS user's cookie — the SPA clears it only once this
+    # document has loaded. Reconciling that request would bounce it into the
+    # handoff again, and again, until the browser gives up.
+    return if params[:sso_auth_token].present?
+
     redirect_to '/auth/sso/proxy-login' if mpass_identity_mismatch?
   end
 

@@ -6,6 +6,7 @@ import {
   clearCookiesOnLogout,
   deleteIndexedDBOnLogout,
 } from '../store/utils/api';
+import { isSSOMode } from 'shared/helpers/ssoMode';
 
 export default {
   validityCheck() {
@@ -13,21 +14,34 @@ export default {
     return axios.get(urlData.url);
   },
   logout() {
-    // audit row 14 — per-app logout is NAVIGATION-ONLY.
+    // audit row 14 — under SSO, per-app logout is NAVIGATION-ONLY.
     //
-    // The DELETE /auth/sign_out call was removed deliberately: it cleared the
-    // Rails-side token, but the next request would immediately re-establish a
-    // session from X-Auth-Request-Email, so the user-visible result was identical
-    // while the request added a failure mode. Real sign-out is the portal's
-    // "logout all", which clears the shared _oauth2_proxy cookie.
+    // DELETE /auth/sign_out is skipped only in SSO mode: it cleared the Rails-side
+    // token, but the next request would immediately re-establish a session from
+    // X-Auth-Request-Email, so the user-visible result was identical while the
+    // request added a failure mode. Real sign-out is the portal's "logout all",
+    // which clears the shared _oauth2_proxy cookie.
+    //
+    // Stock Chatwoot still calls it: without SSO the devise token is the whole
+    // session, and skipping the request would leave it valid for its full lifespan
+    // after the user believes they have logged out.
     //
     // The portal URL is deployer-supplied and already handled by
     // clearCookiesOnLogout(), which reads globalConfig.LOGOUT_REDIRECT_LINK and
     // navigates (store/utils/api.js:91-93). Never derive the host by rewriting the
     // hostname, and never point at /oauth2/sign_out.
-    deleteIndexedDBOnLogout();
-    clearCookiesOnLogout();
-    return Promise.resolve();
+    if (isSSOMode()) {
+      deleteIndexedDBOnLogout();
+      clearCookiesOnLogout();
+      return Promise.resolve();
+    }
+
+    const urlData = endPoints('logout');
+    return axios.delete(urlData.url).then(response => {
+      deleteIndexedDBOnLogout();
+      clearCookiesOnLogout();
+      return response;
+    });
   },
   hasAuthCookie() {
     return !!Cookies.get('cw_d_session_info');
