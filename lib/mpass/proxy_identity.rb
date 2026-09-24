@@ -28,6 +28,13 @@ module Mpass::ProxyIdentity
     ENV.fetch('AUTH_TYPE', nil) == 'SSO'
   end
 
+  # Whether the proxy asserted ANY identity, resolvable or not. A header present but
+  # unresolvable (bare username with DEFAULT_EMAIL_DOMAIN unset) is not an absence:
+  # proxy-auth-middleware "Mismatch with unresolvable upstream identity also flushes".
+  def asserted?(request)
+    normalise(request.get_header(EMAIL_HEADER)).present?
+  end
+
   # The normalised email this request asserts, or nil when no identity is present.
   # Absence is NOT a logout signal — internal traffic (Sidekiq, health probes,
   # direct container hits) legitimately carries no header. X-Auth-Request-User is

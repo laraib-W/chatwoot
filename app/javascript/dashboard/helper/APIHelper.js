@@ -18,7 +18,7 @@ const parseErrorCode = error => Promise.reject(error);
 // reports_controller.rb:55 answer `head :unauthorized` for a non-administrator.
 // Reacting to every 401 would log an agent out for opening an admin-only screen.
 // Only Api::BaseController#flush_stale_mpass_session sets this header.
-const handleUnauthorized = error => {
+export const handleUnauthorized = error => {
   if (error?.response?.headers?.[SSO_FLUSH_HEADER]) {
     // Cookie-only clear, not clearCookiesOnLogout() — that one navigates to the
     // portal (LOGOUT_REDIRECT_LINK). A Rule 2 flush is not a logout: the user is

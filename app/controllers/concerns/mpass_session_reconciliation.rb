@@ -31,13 +31,13 @@ module MpassSessionReconciliation
   def mpass_identity_mismatch?
     return false unless Mpass::ProxyIdentity.sso_mode?
 
-    incoming = Mpass::ProxyIdentity.email(request)
-    return false if incoming.blank?
+    return false unless Mpass::ProxyIdentity.asserted?(request)
 
     current = mpass_session_email
     return false if current.blank?
 
-    current != incoming
+    # nil here means asserted but unresolvable: flush rather than keep the session.
+    current != Mpass::ProxyIdentity.email(request)
   end
 
   # Rule 3, entry path — the proxy asserts an identity and the browser holds no app

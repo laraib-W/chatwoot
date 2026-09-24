@@ -1,5 +1,7 @@
 class Api::V1::ProfilesController < Api::BaseController
+  include MpassLocalAuthGuard
   before_action :set_user
+  before_action :reject_local_auth_under_sso, only: [:resend_confirmation]
 
   def show; end
 

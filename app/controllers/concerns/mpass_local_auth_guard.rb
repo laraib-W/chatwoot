@@ -35,12 +35,14 @@ module MpassLocalAuthGuard
   # created before the integration still has a working local password, and
   # MpassUserBuilder gives provisioned users a real (random) one too.
   #
-  # Reads params only, and must therefore run BEFORE
-  # DeviseOverrides::SessionsController#merge_credential_headers: the handoff token
-  # only ever arrives in the body, while credentials may arrive either way.
+  # Must run AFTER merge_credential_headers and process_sso_auth_token: only a
+  # handoff token that process_sso_auth_token VALIDATED (it sets @resource) opens
+  # the door, and never alongside a password or MFA credential. Keying on the
+  # parameter's presence let `sso_auth_token=x` plus a password through.
   def reject_local_login_under_sso
-    return if params[:sso_auth_token].present?
+    return unless Mpass::ProxyIdentity.sso_mode?
 
-    reject_local_auth_under_sso
+    handoff = @resource.present? && params[:password].blank? && params[:mfa_token].blank?
+    head :not_found unless handoff
   end
 end

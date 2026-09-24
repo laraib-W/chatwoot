@@ -45,4 +45,20 @@ RSpec.describe 'local-credential route inventory under SSO', type: :request do
 
     expect(unguarded).to be_empty
   end
+
+  # Prefixes miss endpoints like POST /api/v2/accounts, so also find controllers by
+  # what they do: anything that issues a devise_token_auth session must be gated.
+  it 'guards every controller that issues a session, wherever it is mounted' do
+    issuers = Dir[Rails.root.join('app/controllers/**/*_controller.rb')].select do |file|
+      File.read(file).match?(/\b(send_auth_headers|create_new_auth_token|create_token)\b/)
+    end
+    names = issuers.map { |file| file[%r{app/controllers/(.+)_controller\.rb\z}, 1] }
+
+    unguarded = (names - not_local_credentials - known_open.keys).reject do |name|
+      filters = "#{name.camelize}Controller".constantize._process_action_callbacks.map(&:filter)
+      filters.intersect?(guards)
+    end
+
+    expect(unguarded).to be_empty
+  end
 end

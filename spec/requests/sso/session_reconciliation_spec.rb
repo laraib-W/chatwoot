@@ -85,6 +85,24 @@ RSpec.describe 'mPass session reconciliation', type: :request do
       end
     end
 
+    # Required regression test: both sides normalised before comparing.
+    it 'treats a case- and whitespace-different identity as a MATCH' do
+      with_session_cookie('A@Askii.ai ')
+      with_modified_env(**sso_env) do
+        get '/app', headers: { 'X-Auth-Request-Email' => '  a@ASKII.AI  ' }
+        expect(response).to have_http_status(:success)
+      end
+    end
+
+    # proxy-auth-middleware "Mismatch with unresolvable upstream identity also flushes".
+    it 'flushes when the asserted identity cannot be resolved' do
+      with_session_cookie('a@askii.ai')
+      with_modified_env(**sso_env, DEFAULT_EMAIL_DOMAIN: nil) do
+        get '/app', headers: { 'X-Auth-Request-Email' => '847392' }
+        expect(response).to redirect_to('/auth/sso/proxy-login')
+      end
+    end
+
     it 'enters the handoff from the site root too' do
       with_modified_env(**sso_env) do
         get '/', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
@@ -166,6 +184,43 @@ RSpec.describe 'mPass session reconciliation', type: :request do
         # An agent reaching an administrator-only endpoint.
         get "/api/v2/accounts/#{account.id}/reports/conversations",
             headers: token_a.merge('X-Auth-Request-Email' => 'a@askii.ai')
+        expect(response.headers['X-Mpass-Session-Flushed']).to be_nil
+      end
+    end
+
+    it 'treats a case- and whitespace-different identity as a MATCH' do
+      with_modified_env(**sso_env) do
+        get "/api/v1/accounts/#{account.id}/conversations",
+            headers: token_a.merge('X-Auth-Request-Email' => '  A@ASKII.AI  ')
+        expect(response).to have_http_status(:success)
+        expect(user_a.reload.tokens.keys).to include(token_a['client'])
+      end
+    end
+
+    it 'flushes when the asserted identity cannot be resolved' do
+      with_modified_env(**sso_env, DEFAULT_EMAIL_DOMAIN: nil) do
+        get "/api/v1/accounts/#{account.id}/conversations",
+            headers: token_a.merge('X-Auth-Request-Email' => '847392')
+        expect(response).to have_http_status(:unauthorized)
+        expect(response.headers['X-Mpass-Session-Flushed']).to eq('true')
+        expect(user_a.reload.tokens.keys).not_to include(token_a['client'])
+      end
+    end
+
+    # session-lifecycle: Layer 2 expiry while Layer 1 is valid must re-establish.
+    it 'marks a dead token as a flush while the proxy still asserts an identity' do
+      with_modified_env(**sso_env) do
+        get "/api/v1/accounts/#{account.id}/conversations",
+            headers: token_a.merge('access-token' => 'expired', 'X-Auth-Request-Email' => 'a@askii.ai')
+        expect(response).to have_http_status(:unauthorized)
+        expect(response.headers['X-Mpass-Session-Flushed']).to eq('true')
+      end
+    end
+
+    it 'does not mark a dead token when no identity is asserted' do
+      with_modified_env(**sso_env) do
+        get "/api/v1/accounts/#{account.id}/conversations", headers: token_a.merge('access-token' => 'expired')
+        expect(response).to have_http_status(:unauthorized)
         expect(response.headers['X-Mpass-Session-Flushed']).to be_nil
       end
     end

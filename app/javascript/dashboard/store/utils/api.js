@@ -38,7 +38,11 @@ export const setAuthCredentials = response => {
   // build its request headers. That tradeoff is recorded in
   // sso-rules-moneta/apps/chatwoot/security.md rather than left as a silent gap.
   Cookies.set('cw_d_session_info', JSON.stringify(response.headers), {
-    expires: differenceInDays(expiryDate, new Date()),
+    // Under SSO the TTL can be under a day (8h in the bundle); whole days would
+    // round it to 0 and the browser would drop the cookie on arrival.
+    expires: isSSOMode()
+      ? expiryDate
+      : differenceInDays(expiryDate, new Date()),
     // SSO-only, like every fork change: stock Chatwoot keeps upstream's cookie.
     secure: isSSOMode() && window.location.protocol === 'https:',
   });

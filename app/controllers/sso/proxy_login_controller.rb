@@ -44,6 +44,9 @@ class Sso::ProxyLoginController < ApplicationController
   end
 
   def redirect_with_error
+    # Expire the SPA credential too: otherwise the failure page sees the old cookie,
+    # reloads the dashboard as the previous user, and the flush loops.
+    cookies.delete('cw_d_session_info')
     redirect_to "#{frontend_url}/app/login?error=sso_failed", allow_other_host: true
   end
 

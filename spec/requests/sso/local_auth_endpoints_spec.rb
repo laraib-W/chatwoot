@@ -66,6 +66,39 @@ RSpec.describe 'local-credential endpoints under SSO', type: :request do
       expect(response).to have_http_status(:not_found)
     end
 
+    # Review finding: the gate once checked only that sso_auth_token was PRESENT, so
+    # any value plus a password fell through to DTA's password login.
+    it 'refuses a password login carrying a bogus handoff token' do
+      post '/auth/sign_in', params: { email: user.email, password: 'Password1!', sso_auth_token: 'x' }
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it 'refuses an MFA verification carrying a bogus handoff token' do
+      post '/auth/sign_in', params: { mfa_token: 'some-token', otp_code: '123456', sso_auth_token: 'x' }
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it 'refuses a valid handoff token sent together with a password' do
+      token = user.generate_sso_auth_token
+      post '/auth/sign_in', params: { email: user.email, password: 'Password1!', sso_auth_token: token }
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it 'refuses v2 self-registration, which returns a session' do
+      post '/api/v2/accounts', params: { user: { email: 'new@example.com', password: 'Password1!' } }
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it 'refuses MFA enrolment' do
+      post '/api/v1/profile/mfa', headers: user.create_new_auth_token
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it 'refuses profile confirmation resend' do
+      post '/api/v1/profile/resend_confirmation', headers: user.create_new_auth_token
+      expect(response).to have_http_status(:not_found)
+    end
+
     # The gate must be scoped to local credentials only: the handoff re-enters this
     # same action, and a blanket 404 here would break login entirely.
     it 'still accepts the handoff token on the same endpoint' do
@@ -84,6 +117,11 @@ RSpec.describe 'local-credential endpoints under SSO', type: :request do
 
   context 'when AUTH_TYPE is unset (stock Chatwoot)' do
     around { |ex| with_modified_env(AUTH_TYPE: nil) { ex.run } }
+
+    it 'does not gate profile confirmation resend' do
+      post '/api/v1/profile/resend_confirmation', headers: user.create_new_auth_token
+      expect(response).not_to have_http_status(:not_found)
+    end
 
     # Guards against the gate leaking into non-SSO deployments.
     it 'still serves the password-reset request' do

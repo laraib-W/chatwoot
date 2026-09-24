@@ -77,6 +77,16 @@ RSpec.describe 'Sso::ProxyLoginController', type: :request do
         expect(response).to redirect_to(%r{/app/login\?error=sso_failed})
       end
     end
+
+    # The failure landing must not find the previous user's SPA cookie, or it reloads
+    # the dashboard as that user and an unresolvable identity loops.
+    it 'expires the SPA session cookie on the failure redirect' do
+      cookies['cw_d_session_info'] = CGI.escape({ uid: 'a@askii.ai' }.to_json)
+      with_modified_env(**sso_env) do
+        get_handoff({})
+        expect(response.headers['Set-Cookie'].to_s).to match(/cw_d_session_info=;.*max-age=0/i)
+      end
+    end
   end
 
   describe 'workspace auto-join edge cases' do
