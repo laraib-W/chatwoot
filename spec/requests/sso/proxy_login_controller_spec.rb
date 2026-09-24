@@ -50,8 +50,15 @@ RSpec.describe 'Sso::ProxyLoginController', type: :request do
 
     it 'synthesises an email from a bare Cognito username' do
       with_modified_env(**sso_env) do
-        get_handoff('X-Auth-Request-User' => '847392')
+        get_handoff('X-Auth-Request-Email' => '847392')
         expect(User.from_email('847392@askii.ai')).to be_present
+      end
+    end
+
+    it 'refuses login when DEFAULT_EMAIL_DOMAIN is unset' do
+      with_modified_env(**sso_env, DEFAULT_EMAIL_DOMAIN: nil) do
+        expect { get_handoff('X-Auth-Request-Email' => '847392') }.not_to change(User, :count)
+        expect(response).to redirect_to(%r{/app/login\?error=sso_failed})
       end
     end
 

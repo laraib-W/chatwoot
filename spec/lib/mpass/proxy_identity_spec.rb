@@ -16,9 +16,9 @@ RSpec.describe Mpass::ProxyIdentity do
       expect(described_class.email(req)).to eq('alice@example.com')
     end
 
-    it 'falls back to X-Auth-Request-User when email is absent' do
-      req = request_with('HTTP_X_AUTH_REQUEST_USER' => '847392')
-      expect(described_class.email(req)).to eq("847392@#{ENV.fetch('DEFAULT_EMAIL_DOMAIN', 'askii.ai')}")
+    it 'ignores X-Auth-Request-User (the Cognito sub) when email is absent' do
+      req = request_with('HTTP_X_AUTH_REQUEST_USER' => '3f2504e0-4f89-11d3-9a0c-0305e82c3301')
+      expect(described_class.email(req)).to be_nil
     end
 
     it 'returns nil when both headers are absent (mandatory test 3: absence is not logout)' do
@@ -34,6 +34,13 @@ RSpec.describe Mpass::ProxyIdentity do
       with_modified_env DEFAULT_EMAIL_DOMAIN: 'askii.ai' do
         req = request_with('HTTP_X_AUTH_REQUEST_EMAIL' => '847392')
         expect(described_class.email(req)).to eq('847392@askii.ai')
+      end
+    end
+
+    it 'refuses a bare username when DEFAULT_EMAIL_DOMAIN is unset (fails closed)' do
+      with_modified_env DEFAULT_EMAIL_DOMAIN: nil do
+        req = request_with('HTTP_X_AUTH_REQUEST_EMAIL' => '847392')
+        expect(described_class.email(req)).to be_nil
       end
     end
   end

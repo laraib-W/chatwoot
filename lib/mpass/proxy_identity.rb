@@ -15,7 +15,6 @@
 #
 module Mpass::ProxyIdentity
   EMAIL_HEADER = 'HTTP_X_AUTH_REQUEST_EMAIL'
-  USER_HEADER = 'HTTP_X_AUTH_REQUEST_USER'
   PREFERRED_USERNAME_HEADER = 'HTTP_X_AUTH_REQUEST_PREFERRED_USERNAME'
 
   UUID_SHAPE = /\A\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/
@@ -25,10 +24,10 @@ module Mpass::ProxyIdentity
 
   # The normalised email this request asserts, or nil when no identity is present.
   # Absence is NOT a logout signal — internal traffic (Sidekiq, health probes,
-  # direct container hits) legitimately carries no header.
+  # direct container hits) legitimately carries no header. X-Auth-Request-User is
+  # deliberately not a fallback: it is the Cognito `sub`, not the user key.
   def email(request)
     raw = normalise(request.get_header(EMAIL_HEADER))
-    raw = normalise(request.get_header(USER_HEADER)) if raw.blank?
     return nil if raw.blank?
 
     email_shaped?(raw) ? raw : synthesise(raw)
@@ -49,8 +48,12 @@ module Mpass::ProxyIdentity
 
   # Moneta's Cognito pool returns the literal placeholder "cognito:default_val"
   # for the email claim, so identity arrives as cognito:username — a bare number.
+  # Fails closed: without DEFAULT_EMAIL_DOMAIN there is no identity, never a guessed one.
   def synthesise(username)
-    "#{username}@#{ENV.fetch('DEFAULT_EMAIL_DOMAIN', 'askii.ai')}"
+    domain = normalise(ENV.fetch('DEFAULT_EMAIL_DOMAIN', nil))
+    return nil if domain.blank?
+
+    "#{username}@#{domain}"
   end
 
   # Audit row 19: a display name must never be a UUID. Prefer a real name claim
