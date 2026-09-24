@@ -29,7 +29,7 @@ module MpassSessionReconciliation
   private
 
   def mpass_identity_mismatch?
-    return false unless ENV.fetch('AUTH_TYPE', nil) == 'SSO'
+    return false unless Mpass::ProxyIdentity.sso_mode?
 
     incoming = Mpass::ProxyIdentity.email(request)
     return false if incoming.blank?
@@ -49,7 +49,7 @@ module MpassSessionReconciliation
   # than "no session": without an asserted identity there is nothing to hand off,
   # which is what keeps bypass paths (header-stripped, never re-added) out of it.
   def mpass_handoff_required?
-    return false unless ENV.fetch('AUTH_TYPE', nil) == 'SSO'
+    return false unless Mpass::ProxyIdentity.sso_mode?
     return false if Mpass::ProxyIdentity.email(request).blank?
 
     mpass_session_email.blank?

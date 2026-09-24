@@ -40,7 +40,7 @@ class Sso::ProxyLoginController < ApplicationController
   # behind ForwardAuth. Without this a non-SSO deployment trusts headers from any
   # caller that can reach the port.
   def ensure_sso_mode
-    head :not_found unless ENV.fetch('AUTH_TYPE', nil) == 'SSO'
+    head :not_found unless Mpass::ProxyIdentity.sso_mode?
   end
 
   def redirect_with_error

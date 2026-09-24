@@ -22,6 +22,12 @@ module Mpass::ProxyIdentity
 
   module_function
 
+  # The single switch for every mPass behaviour in this fork. Everything SSO-only
+  # asks this, so the gate cannot drift between call sites.
+  def sso_mode?
+    ENV.fetch('AUTH_TYPE', nil) == 'SSO'
+  end
+
   # The normalised email this request asserts, or nil when no identity is present.
   # Absence is NOT a logout signal — internal traffic (Sidekiq, health probes,
   # direct container hits) legitimately carries no header. X-Auth-Request-User is

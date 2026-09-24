@@ -98,6 +98,26 @@ RSpec.describe MpassUserBuilder do
     # SamlUserBuilder raises AuthenticationFailed here (saml_user_builder.rb:21-24).
     # The workspace-auto-join contract requires join, not reject — this guards
     # against the rejection being reintroduced during an upstream rebase.
+    # The loser of a concurrent first login trips AccountUser's uniqueness
+    # validation (RecordInvalid), not only the DB index (RecordNotUnique).
+    it 'treats a lost membership race as a no-op' do
+      user = create(:user, email: email, account: nil)
+      allow(AccountUser).to receive(:create!).and_wrap_original do |original, **attrs|
+        original.call(**attrs) # the winner's insert
+        original.call(**attrs) # the loser's, which now fails validation
+      end
+
+      expect { described_class.new(email: email).perform }.not_to raise_error
+      expect(user.account_users.count).to eq(1)
+    end
+
+    it 're-raises a validation failure that is not a race' do
+      create(:user, email: email, account: nil)
+      allow(AccountUser).to receive(:create!).and_raise(ActiveRecord::RecordInvalid.new(AccountUser.new))
+
+      expect { described_class.new(email: email).perform }.to raise_error(ActiveRecord::RecordInvalid)
+    end
+
     it 'does NOT reject a user who already belongs to another account' do
       other = create(:account)
       user = create(:user, email: email, account: other)

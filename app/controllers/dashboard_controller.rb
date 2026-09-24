@@ -69,11 +69,13 @@ class DashboardController < ActionController::Base
     # carrying the PREVIOUS user's cookie — the SPA clears it only once this
     # document has loaded. Reconciling that request would bounce it into the
     # handoff again, and again, until the browser gives up.
-    return if params[:sso_auth_token].present?
+    # Only on /app/login: a bare ?sso_auth_token= on any other path must not skip
+    # reconciliation.
+    return if request.path == '/app/login' && params[:sso_auth_token].present?
     # The handoff's own failure landing is /app/login?error=sso_failed, which by
     # definition carries an identity and no session — exactly the entry condition.
     # Re-entering it would retry a failed handoff forever instead of showing why.
-    return if params[:error].present?
+    return if request.path == '/app/login' && params[:error].present?
 
     redirect_to '/auth/sso/proxy-login' if mpass_identity_mismatch? || mpass_handoff_required?
   end
@@ -83,7 +85,7 @@ class DashboardController < ActionController::Base
   end
 
   def ensure_installation_onboarding
-    return if ENV.fetch('AUTH_TYPE', nil) == 'SSO' # onboarding is 404 under SSO
+    return if Mpass::ProxyIdentity.sso_mode? # onboarding is 404 under SSO
 
     redirect_to '/installation/onboarding' if ::Redis::Alfred.get(::Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING)
   end
@@ -136,7 +138,7 @@ class DashboardController < ActionController::Base
   def allowed_login_methods
     # Under SSO the only entry point is the ForwardAuth handoff; offering any local
     # or federated method here is a second identity path Moneta does not control.
-    return ['sso'] if ENV.fetch('AUTH_TYPE', nil) == 'SSO'
+    return ['sso'] if Mpass::ProxyIdentity.sso_mode?
 
     methods = ['email']
     methods << 'google_oauth' if GlobalConfigService.load('ENABLE_GOOGLE_OAUTH_LOGIN', 'true').to_s != 'false'

@@ -86,8 +86,9 @@ class MpassUserBuilder
     return if @user.account_users.exists?(account_id: account.id)
 
     AccountUser.create!(user: @user, account: account, role: DEFAULT_ROLE)
-  rescue ActiveRecord::RecordNotUnique
-    # Two concurrent logins for the same new user; membership already exists.
-    nil
+  rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
+    # Two concurrent logins for the same new user: the loser trips either the DB
+    # unique index or AccountUser's uniqueness validation. Re-raise anything else.
+    raise unless @user.account_users.exists?(account_id: account.id)
   end
 end

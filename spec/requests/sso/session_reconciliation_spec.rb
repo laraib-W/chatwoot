@@ -77,6 +77,14 @@ RSpec.describe 'mPass session reconciliation', type: :request do
       end
     end
 
+    it 'does not let a bare ?sso_auth_token= skip reconciliation outside /app/login' do
+      with_session_cookie('a@askii.ai')
+      with_modified_env(**sso_env) do
+        get '/app/accounts/1/dashboard?sso_auth_token=x', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
+        expect(response).to redirect_to('/auth/sso/proxy-login')
+      end
+    end
+
     it 'enters the handoff from the site root too' do
       with_modified_env(**sso_env) do
         get '/', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }

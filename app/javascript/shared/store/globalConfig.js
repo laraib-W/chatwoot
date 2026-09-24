@@ -1,5 +1,6 @@
 import { parseBoolean } from '@chatwoot/utils';
 import { resolveMaximumFileUploadSize } from 'shared/helpers/FileHelper';
+import { isSSOMode } from 'shared/helpers/ssoMode';
 
 const {
   API_CHANNEL_NAME: apiChannelName,
@@ -45,7 +46,7 @@ const state = {
   // audit row 15. When Cognito owns identity, every local credential surface must
   // hide or hard-redirect — a half-gated UI still leaves a self-lockout path.
   // Injected per request by DashboardController#app_config, never baked.
-  isSSOEnabled: authType === 'SSO',
+  isSSOEnabled: isSSOMode(),
   disableMetaInboxCreation: parseBoolean(disableMetaInboxCreation),
   disableMetaMessageSending: parseBoolean(disableMetaMessageSending),
   displayManifest,

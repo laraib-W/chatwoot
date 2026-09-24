@@ -24,7 +24,7 @@ module MpassLocalAuthGuard
   private
 
   def reject_local_auth_under_sso
-    head :not_found if ENV.fetch('AUTH_TYPE', nil) == 'SSO'
+    head :not_found if Mpass::ProxyIdentity.sso_mode?
   end
 
   # The login endpoint is the one local-credential surface that cannot be refused

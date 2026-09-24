@@ -63,7 +63,7 @@ class Api::V1::ProfilesController < Api::BaseController
   end
 
   def sso_mode?
-    ENV.fetch('AUTH_TYPE', nil) == 'SSO'
+    Mpass::ProxyIdentity.sso_mode?
   end
 
   # Changing the local email breaks the X-Auth-Request-Email lookup and locks the
