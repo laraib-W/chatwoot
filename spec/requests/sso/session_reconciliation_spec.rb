@@ -257,6 +257,18 @@ RSpec.describe 'mPass session reconciliation', type: :request do
         put '/api/v1/profile', params: { profile: { password: 'NewPassword1!', current_password: 'Password1!' } },
                                headers: token_a
         expect(response).to have_http_status(:unprocessable_entity)
+        expect(user_a.reload.valid_password?('NewPassword1!')).to be(false)
+      end
+    end
+
+    # The gate must not leak into stock Chatwoot: without SSO a user still changes
+    # their own password here, with their current one.
+    it 'still lets a user change their password without SSO' do
+      with_modified_env(AUTH_TYPE: nil) do
+        put '/api/v1/profile', params: { profile: { password: 'NewPassword1!', current_password: 'Password1!' } },
+                               headers: token_a
+        expect(response).to have_http_status(:success)
+        expect(user_a.reload.valid_password?('NewPassword1!')).to be(true)
       end
     end
 
