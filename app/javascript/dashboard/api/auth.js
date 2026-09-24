@@ -26,10 +26,10 @@ export default {
     // session, and skipping the request would leave it valid for its full lifespan
     // after the user believes they have logged out.
     //
-    // The portal URL is deployer-supplied and already handled by
-    // clearCookiesOnLogout(), which reads globalConfig.LOGOUT_REDIRECT_LINK and
-    // navigates (store/utils/api.js:91-93). Never derive the host by rewriting the
-    // hostname, and never point at /oauth2/sign_out.
+    // The portal URL is deployer-supplied: MPASS_PORTAL_URL, passed to
+    // clearCookiesOnLogout(), not LOGOUT_REDIRECT_LINK (DB-only, and it also drives
+    // the 401 re-auth path). Never derive the host by rewriting the hostname, and
+    // never point at /oauth2/sign_out.
     if (isSSOMode()) {
       deleteIndexedDBOnLogout();
       clearCookiesOnLogout(window.globalConfig?.MPASS_PORTAL_URL);

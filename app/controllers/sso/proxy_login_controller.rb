@@ -10,9 +10,10 @@
 #
 # Flow: read proxy identity -> resolve-or-provision -> mint a 5-minute single-use
 # sso_auth_token -> 302 to /app/login?email=&sso_auth_token=. The existing SPA login
-# route consumes it: RouteHelper.js:23-27 clears the previous user's session cookie,
-# Index.vue:111-114 auto-submits, and DeviseOverrides::SessionsController issues the
-# devise_token_auth headers. No new credential machinery, no new frontend code.
+# route consumes it: RouteHelper.js clears the previous user's session cookie, the
+# login page (Index.vue) submits the token behind a spinner, and
+# DeviseOverrides::SessionsController issues the devise_token_auth headers only for a
+# token it validated. No new credential machinery.
 class Sso::ProxyLoginController < ApplicationController
   skip_before_action :set_current_user, raise: false
 

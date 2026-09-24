@@ -9,7 +9,12 @@ RSpec.describe 'local-credential route inventory under SSO', type: :request do
   let(:local_auth_controller_pattern) { %r{\A(devise_token_auth|devise_overrides|devise|installation|auth)/} }
 
   # Reachable under SSO without the guard, each for a stated reason.
-  let(:not_local_credentials) { %w[devise_overrides/token_validations] }
+  let(:not_local_credentials) do
+    %w[
+      devise_overrides/token_validations
+      sso/proxy_login
+    ] # the handoff itself mints the one-time token; header trust is gated on AUTH_TYPE
+  end
   let(:known_open) do
     {
       'devise_token_auth/registrations' => 'apps/chatwoot/security.md G7 — PUT /auth sets a password without the current one',
@@ -18,7 +23,10 @@ RSpec.describe 'local-credential route inventory under SSO', type: :request do
       'devise/passwords' => 'super-admin Devise defaults (devise_for :super_admins has no skip:)',
       'devise/confirmations' => 'super-admin Devise defaults',
       'devise/registrations' => 'super-admin Devise defaults',
-      'devise/omniauth_callbacks' => 'super-admin Devise defaults'
+      'devise/omniauth_callbacks' => 'super-admin Devise defaults',
+      'super_admin/devise/sessions' => 'super-admin password login (separate Warden session)',
+      'platform/api/v1/users' => 'Platform API mints login links; machine-to-machine, and a Platform app ' \
+                                 'can already read the user access token, so it adds no new access'
     }
   end
 
@@ -49,10 +57,13 @@ RSpec.describe 'local-credential route inventory under SSO', type: :request do
   # Prefixes miss endpoints like POST /api/v2/accounts, so also find controllers by
   # what they do: anything that issues a devise_token_auth session must be gated.
   it 'guards every controller that issues a session, wherever it is mounted' do
-    issuers = Dir[Rails.root.join('app/controllers/**/*_controller.rb')].select do |file|
-      File.read(file).match?(/\b(send_auth_headers|create_new_auth_token|create_token)\b/)
+    # Session issuers, handoff-token minters and Warden sign-ins, in CE and EE code.
+    issuing = /\b(send_auth_headers|create_new_auth_token|create_token|generate_sso_link|generate_sso_auth_token)\b|\bsign_in\(/
+    issuers = Dir[Rails.root.join('{app,enterprise/app}/controllers/**/*_controller.rb')].select do |file|
+      File.read(file).match?(issuing)
     end
-    names = issuers.map { |file| file[%r{app/controllers/(.+)_controller\.rb\z}, 1] }
+    # An EE file is a module prepended into the CE controller of the same name.
+    names = issuers.map { |file| file[%r{controllers/(.+)_controller\.rb\z}, 1].delete_prefix('enterprise/') }.uniq
 
     unguarded = (names - not_local_credentials - known_open.keys).reject do |name|
       filters = "#{name.camelize}Controller".constantize._process_action_callbacks.map(&:filter)

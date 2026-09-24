@@ -17,7 +17,9 @@ const parseErrorCode = error => Promise.reject(error);
 // (request_exception_handler.rb:24-26) and endpoints such as
 // reports_controller.rb:55 answer `head :unauthorized` for a non-administrator.
 // Reacting to every 401 would log an agent out for opening an admin-only screen.
-// Only Api::BaseController#flush_stale_mpass_session sets this header.
+// Only Api::BaseController sets this header: on a Rule 2 flush
+// (flush_stale_mpass_session) and on a dead token while the proxy still asserts an
+// identity (render_authenticate_error). Both mean "re-enter the handoff".
 export const handleUnauthorized = error => {
   if (error?.response?.headers?.[SSO_FLUSH_HEADER]) {
     // Cookie-only clear, not clearCookiesOnLogout() — that one navigates to the

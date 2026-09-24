@@ -6,8 +6,9 @@
 // request, so it is never baked into a build.
 export const isSSOMode = () => window.globalConfig?.AUTH_TYPE === 'SSO';
 
-// Set by Api::BaseController#flush_stale_mpass_session, and by nothing else, so the
-// SPA can tell a Rule 2 identity flush apart from an ordinary permission 401.
+// Set only by Api::BaseController (a Rule 2 flush, or a dead token while an identity
+// is asserted), so the SPA can tell "re-enter the handoff" apart from an ordinary
+// permission 401.
 // Lowercase: axios normalises response header names.
 export const SSO_FLUSH_HEADER = 'x-mpass-session-flushed';
 

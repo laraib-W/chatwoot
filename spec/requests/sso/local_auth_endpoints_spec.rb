@@ -118,6 +118,13 @@ RSpec.describe 'local-credential endpoints under SSO', type: :request do
   context 'when AUTH_TYPE is unset (stock Chatwoot)' do
     around { |ex| with_modified_env(AUTH_TYPE: nil) { ex.run } }
 
+    # Upstream's MFA request specs skip without encryption configured, so pin the
+    # non-SSO side here: whatever MFA answers, it is not the SSO gate's 404.
+    it 'does not gate MFA enrolment' do
+      post '/api/v1/profile/mfa', headers: user.create_new_auth_token
+      expect(response).not_to have_http_status(:not_found)
+    end
+
     it 'does not gate profile confirmation resend' do
       post '/api/v1/profile/resend_confirmation', headers: user.create_new_auth_token
       expect(response).not_to have_http_status(:not_found)
