@@ -116,13 +116,15 @@ export default {
     ssoHandoffPath() {
       return SSO_HANDOFF_PATH;
     },
-    // The mPass handoff lands here only to trade its one-time token for a session;
-    // a login screen during that second reads as "you are logged out". Anything
-    // that needs the user (session limit, MFA, error) falls back to the page below.
+    // Under SSO this page is only ever a waypoint: with no token it starts the
+    // handoff, with one it trades it for a session. A login screen during either
+    // reads as "you are logged out". Only a failed handoff (?error=) shows the
+    // mPass button, so a persistent failure cannot loop; anything else that needs
+    // the user (session limit, MFA) falls back to the page below.
     isSSOHandoffInProgress() {
+      if (!this.isSSOMode || this.authError) return false;
+      if (!this.ssoAuthToken) return true;
       return (
-        this.isSSOMode &&
-        !!this.ssoAuthToken &&
         !this.sessionsLimitReached &&
         !this.mfaRequired &&
         !this.loginApi.hasErrored
@@ -132,6 +134,8 @@ export default {
   created() {
     if (this.ssoAuthToken) {
       this.submitLogin();
+    } else if (this.isSSOHandoffInProgress) {
+      window.location.assign(SSO_HANDOFF_PATH);
     }
   },
   mounted() {
@@ -239,7 +243,11 @@ export default {
 
           // Reset URL Params if the authentication is invalid
           if (this.email) {
-            window.location = '/app/login';
+            // Under SSO a bare /app/login would restart the handoff; the error
+            // marker stops a persistent failure from looping.
+            window.location = this.isSSOMode
+              ? '/app/login?error=sso_failed'
+              : '/app/login';
           }
           this.loginApi.hasErrored = true;
           this.showAlertMessage(
