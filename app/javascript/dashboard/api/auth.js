@@ -32,16 +32,24 @@ export default {
     // hostname, and never point at /oauth2/sign_out.
     if (isSSOMode()) {
       deleteIndexedDBOnLogout();
-      clearCookiesOnLogout();
+      clearCookiesOnLogout(window.globalConfig?.MPASS_PORTAL_URL);
       return Promise.resolve();
     }
 
     const urlData = endPoints('logout');
-    return axios.delete(urlData.url).then(response => {
-      deleteIndexedDBOnLogout();
-      clearCookiesOnLogout();
-      return response;
+    const fetchPromise = new Promise((resolve, reject) => {
+      axios
+        .delete(urlData.url)
+        .then(response => {
+          deleteIndexedDBOnLogout();
+          clearCookiesOnLogout();
+          resolve(response);
+        })
+        .catch(error => {
+          reject(error);
+        });
     });
+    return fetchPromise;
   },
   hasAuthCookie() {
     return !!Cookies.get('cw_d_session_info');

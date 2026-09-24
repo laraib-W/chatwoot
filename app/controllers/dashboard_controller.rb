@@ -4,7 +4,8 @@ class DashboardController < ActionController::Base
   include MpassSessionReconciliation
 
   # Rule 2, Path A — must run before the SPA is served, so user B never sees a
-  # document rendered under user A's identity. audit row 20
+  # document rendered under user A's identity. Also the SSO entry point: a browser
+  # with no app session is sent into the handoff. audit rows 6, 20
   before_action :reconcile_mpass_identity, only: [:index]
 
   GLOBAL_CONFIG_KEYS = %w[
@@ -55,17 +56,26 @@ class DashboardController < ActionController::Base
     @global_config = GlobalConfig.get(*GLOBAL_CONFIG_KEYS).merge(app_config)
   end
 
-  # Rule 2, Path A. Re-enters the handoff, which mints a token for the incoming
-  # identity and redirects to /app/login?email=&sso_auth_token= — the SPA's existing
-  # RouteHelper.js:23-27 clears the previous user's cookie before submitting.
+  # Rule 2, Path A, and the SSO entry point. Both resolve the same way: enter the
+  # handoff, which mints a token for the incoming identity and redirects to
+  # /app/login?email=&sso_auth_token= — the SPA's existing RouteHelper.js:23-27
+  # clears any previous user's cookie before submitting.
+  #
+  # Without the entry half, first login dead-ends: the user scans the QR code, the
+  # edge lets the request through, and Chatwoot serves its own login form, which
+  # under SSO accepts nothing. Nothing on the client can start the handoff.
   def reconcile_mpass_identity
     # The handoff lands back here on /app/login (dashboard#index serves it), still
     # carrying the PREVIOUS user's cookie — the SPA clears it only once this
     # document has loaded. Reconciling that request would bounce it into the
     # handoff again, and again, until the browser gives up.
     return if params[:sso_auth_token].present?
+    # The handoff's own failure landing is /app/login?error=sso_failed, which by
+    # definition carries an identity and no session — exactly the entry condition.
+    # Re-entering it would retry a failed handoff forever instead of showing why.
+    return if params[:error].present?
 
-    redirect_to '/auth/sso/proxy-login' if mpass_identity_mismatch?
+    redirect_to '/auth/sso/proxy-login' if mpass_identity_mismatch? || mpass_handoff_required?
   end
 
   def set_dashboard_scripts
@@ -73,6 +83,8 @@ class DashboardController < ActionController::Base
   end
 
   def ensure_installation_onboarding
+    return if ENV.fetch('AUTH_TYPE', nil) == 'SSO' # onboarding is 404 under SSO
+
     redirect_to '/installation/onboarding' if ::Redis::Alfred.get(::Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING)
   end
 
@@ -108,6 +120,9 @@ class DashboardController < ActionController::Base
       # persists ENV into InstallationConfig on first read, which would make
       # AUTH_TYPE sticky in the database and survive an env change. audit rows 5, 8
       AUTH_TYPE: ENV.fetch('AUTH_TYPE', ''),
+      # SSO Sign out target (logout-flow spec). Its own key: LOGOUT_REDIRECT_LINK also
+      # drives the 401 re-auth path, which must stay inside the app.
+      MPASS_PORTAL_URL: ENV.fetch('MPASS_PORTAL_URL', ''),
       ACTIVE_PLATFORM_BANNERS: active_platform_banners
     }
   end

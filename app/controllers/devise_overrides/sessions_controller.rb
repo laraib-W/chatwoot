@@ -2,6 +2,10 @@ class DeviseOverrides::SessionsController < DeviseTokenAuth::SessionsController
   # Prevent session parameter from being passed
   # Unpermitted parameter: session
   wrap_parameters format: []
+  include MpassLocalAuthGuard
+  # audit row 15 — first, so no credential is read before the gate. Scoped to
+  # :create, which also serves the SSO handoff; see the concern for why.
+  before_action :reject_local_login_under_sso, only: [:create]
   # DTA's params_for_resource copies these headers into params during super.
   # Mirror that up front so every pre-authentication check in create sees the
   # same credentials a header-only request would authenticate with.

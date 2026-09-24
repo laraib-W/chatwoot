@@ -6,6 +6,7 @@ import { SESSION_STORAGE_KEYS } from 'dashboard/constants/sessionStorage';
 import { LocalStorage } from 'shared/helpers/localStorage';
 import SessionStorage from 'shared/helpers/sessionStorage';
 import { emitter } from 'shared/helpers/mitt';
+import { isSSOMode } from 'shared/helpers/ssoMode';
 import {
   ANALYTICS_IDENTITY,
   ANALYTICS_RESET,
@@ -38,7 +39,8 @@ export const setAuthCredentials = response => {
   // sso-rules-moneta/apps/chatwoot/security.md rather than left as a silent gap.
   Cookies.set('cw_d_session_info', JSON.stringify(response.headers), {
     expires: differenceInDays(expiryDate, new Date()),
-    secure: window.location.protocol === 'https:',
+    // SSO-only, like every fork change: stock Chatwoot keeps upstream's cookie.
+    secure: isSSOMode() && window.location.protocol === 'https:',
   });
   setUser(response.data.data, expiryDate);
 };
@@ -83,14 +85,15 @@ export const deleteIndexedDBOnLogout = async () => {
   localStorage.removeItem('cw-idb-names');
 };
 
-export const clearCookiesOnLogout = () => {
+export const clearCookiesOnLogout = redirectTo => {
   emitter.emit(CHATWOOT_RESET);
   emitter.emit(ANALYTICS_RESET);
   clearBrowserSessionCookies();
   clearLocalStorageOnLogout();
   clearSessionStorageOnLogout();
   const globalConfig = window.globalConfig || {};
-  const logoutRedirectLink = globalConfig.LOGOUT_REDIRECT_LINK || '/';
+  const logoutRedirectLink =
+    redirectTo || globalConfig.LOGOUT_REDIRECT_LINK || '/';
   window.location = logoutRedirectLink;
 };
 

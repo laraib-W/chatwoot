@@ -16,6 +16,10 @@
 #
 # Header ABSENCE is never a mismatch. Internal traffic (Sidekiq, health probes,
 # direct container hits) carries no header and must not be logged out.
+#
+# The same two signals answer the entry question — see mpass_handoff_required?.
+# "Which user does this document belong to" is one decision, so mismatch and
+# first-entry are decided here together rather than in two places that could drift.
 module MpassSessionReconciliation
   extend ActiveSupport::Concern
 
@@ -36,6 +40,21 @@ module MpassSessionReconciliation
     current != incoming
   end
 
+  # Rule 3, entry path — the proxy asserts an identity and the browser holds no app
+  # session at all. Nothing on the client can start the handoff: under SSO the login
+  # page offers only local credentials, so a user who has just scanned the QR code
+  # would land on a login form with no way in. The server therefore starts it.
+  #
+  # Distinct from a mismatch, which needs a session to disagree with, and narrower
+  # than "no session": without an asserted identity there is nothing to hand off,
+  # which is what keeps bypass paths (header-stripped, never re-added) out of it.
+  def mpass_handoff_required?
+    return false unless ENV.fetch('AUTH_TYPE', nil) == 'SSO'
+    return false if Mpass::ProxyIdentity.email(request).blank?
+
+    mpass_session_email.blank?
+  end
+
   # Resolving "who does the browser think it is" differs by path, because Chatwoot's
   # credential is client-held:
   #
@@ -43,12 +62,15 @@ module MpassSessionReconciliation
   #               has already populated current_user.
   #   Document  — a browser navigation sends NO auth headers, only the
   #               cw_d_session_info cookie. DashboardController descends from
-  #               ActionController::Base and never includes SetUserByToken, so
-  #               current_user does not exist here at all. The cookie is the only
-  #               server-visible signal, and it is readable precisely because the
-  #               SPA needs it to be non-httpOnly.
+  #               ActionController::Base and never includes SetUserByToken. Devise
+  #               still gives it a current_user, but that one is Warden's, read
+  #               from the httpOnly Rails session the SPA cannot see or clear, so
+  #               it must not count: trusting it served the app to a browser whose
+  #               SPA then showed a dead-end login page (devkit e2e, 2026-09-24).
   def mpass_session_email
-    return Mpass::ProxyIdentity.normalise(current_user.email) if respond_to?(:current_user) && current_user.present?
+    if self.class.include?(DeviseTokenAuth::Concerns::SetUserByToken) && current_user.present?
+      return Mpass::ProxyIdentity.normalise(current_user.email)
+    end
 
     mpass_session_email_from_cookie
   end
@@ -58,7 +80,17 @@ module MpassSessionReconciliation
     return nil if raw.blank?
 
     payload = JSON.parse(CGI.unescape(raw))
-    Mpass::ProxyIdentity.normalise(payload['uid'])
+    # Valid JSON is not necessarily an object: `null`, `[1,2]` and `123` all parse
+    # cleanly and then raise on []('uid') — NoMethodError, TypeError, TypeError.
+    # This cookie is JS-readable by design, so its contents are attacker-reachable
+    # via XSS and corruptible by the user; an unguarded crash here would 500 every
+    # document request and make the dashboard permanently unreachable.
+    return nil unless payload.is_a?(Hash)
+
+    uid = payload['uid']
+    return nil unless uid.is_a?(String)
+
+    Mpass::ProxyIdentity.normalise(uid)
   rescue JSON::ParserError
     # A malformed cookie tells us nothing about identity. Treat it as "no session"
     # rather than as a mismatch: a spurious flush would log out a valid user.

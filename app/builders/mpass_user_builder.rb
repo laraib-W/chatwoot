@@ -36,11 +36,23 @@ class MpassUserBuilder
     return adopt(existing) if existing
 
     create_user
-  rescue ActiveRecord::RecordNotUnique
+  rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
     # Concurrent first-request race: another request created the row between our
-    # lookup and our insert. Fall back to a plain read; re-raise if still absent
-    # rather than swallowing (proxy-auth-middleware/spec.md "Concurrent creation
-    # races SHALL fall back to read").
+    # lookup and our insert. Fall back to a plain read; re-raise if the row is
+    # still absent rather than swallowing (proxy-auth-middleware/spec.md
+    # "Concurrent creation races SHALL fall back to read").
+    #
+    # BOTH exceptions are in scope, and which one fires depends on how narrow the
+    # window was. Devise's :validatable adds a uniqueness validation, so if the
+    # other request's row became visible before our validation query we get
+    # RecordInvalid; if it landed between our validation and our INSERT we get
+    # RecordNotUnique from the unique index on (uid, provider) — uid is synced to
+    # the email by devise_token_auth. Rescuing only the latter leaves the wider
+    # window unhandled.
+    #
+    # Re-raising when the row is still absent keeps a genuinely invalid record
+    # (bad email, failed validation for some other reason) from being silently
+    # swallowed as if it were a race.
     User.from_email(@email) || raise
   end
 

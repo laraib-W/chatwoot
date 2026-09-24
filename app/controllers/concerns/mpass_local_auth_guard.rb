@@ -26,4 +26,21 @@ module MpassLocalAuthGuard
   def reject_local_auth_under_sso
     head :not_found if ENV.fetch('AUTH_TYPE', nil) == 'SSO'
   end
+
+  # The login endpoint is the one local-credential surface that cannot be refused
+  # outright: the ForwardAuth handoff re-enters POST /auth/sign_in carrying an
+  # sso_auth_token, so a blanket gate there would break login itself. Everything
+  # else that reaches it — a password, a header-supplied credential pair, an MFA
+  # verification — is a second identity path Moneta does not control. Every account
+  # created before the integration still has a working local password, and
+  # MpassUserBuilder gives provisioned users a real (random) one too.
+  #
+  # Reads params only, and must therefore run BEFORE
+  # DeviseOverrides::SessionsController#merge_credential_headers: the handoff token
+  # only ever arrives in the body, while credentials may arrive either way.
+  def reject_local_login_under_sso
+    return if params[:sso_auth_token].present?
+
+    reject_local_auth_under_sso
+  end
 end

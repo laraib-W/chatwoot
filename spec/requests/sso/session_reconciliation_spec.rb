@@ -53,18 +53,73 @@ RSpec.describe 'mPass session reconciliation', type: :request do
       end
     end
 
-    it 'serves normally when there is no session cookie at all (first visit)' do
+    # The ENTRY path. This previously asserted a 200, which described the dead end
+    # rather than a requirement: the user scans the QR code, the edge lets them
+    # through, and Chatwoot serves its own login form — which under SSO accepts
+    # nothing (sessions_controller 404s a password login) and offers no way to
+    # start the handoff. First login could not complete at all.
+    it 'enters the handoff when there is no session cookie at all (first visit)' do
       with_modified_env(**sso_env) do
+        get '/app', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
+        expect(response).to redirect_to('/auth/sso/proxy-login')
+      end
+    end
+
+    # Devise gives DashboardController a Warden-backed current_user from the httpOnly
+    # Rails session. The SPA never sees it: without cw_d_session_info it renders the
+    # login page. Found in the devkit e2e run — the server served the app, the SPA
+    # showed "Continue with mPass", and nothing re-entered the handoff.
+    it 'enters the handoff when only a Warden session exists, without the SPA cookie' do
+      sign_in user_b
+      with_modified_env(**sso_env) do
+        get '/', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
+        expect(response).to redirect_to('/auth/sso/proxy-login')
+      end
+    end
+
+    it 'enters the handoff from the site root too' do
+      with_modified_env(**sso_env) do
+        get '/', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
+        expect(response).to redirect_to('/auth/sso/proxy-login')
+      end
+    end
+
+    # Entry is gated on an ASSERTED identity, not on the absence of a session. This
+    # is what keeps bypass routers out of it: they strip the identity headers and
+    # mpass-auth never re-adds them, so a webhook or health probe sees no redirect.
+    it 'does not enter the handoff when no identity is asserted' do
+      with_modified_env(**sso_env) do
+        get '/app'
+        expect(response).to have_http_status(:success)
+      end
+    end
+
+    it 'does not enter the handoff when AUTH_TYPE is not SSO' do
+      with_modified_env AUTH_TYPE: nil do
         get '/app', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
         expect(response).to have_http_status(:success)
       end
     end
 
-    it 'does not flush on a malformed session cookie' do
+    # The handoff's own failure landing. It carries an identity and no session —
+    # exactly the entry condition — so without the ?error= short-circuit a failing
+    # handoff would be retried forever instead of surfacing why it failed.
+    it 'does not re-enter the handoff on its own error landing' do
+      with_modified_env(**sso_env) do
+        get '/app/login?error=sso_failed', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
+        expect(response).to have_http_status(:success)
+      end
+    end
+
+    # A cookie we cannot read is not a session. Serving the SPA instead would strand
+    # the browser: hasAuthCookie() is true, so it reloads into the dashboard pack and
+    # replays garbage credentials, and the 401s that come back carry no flush header
+    # for APIHelper to react to. The handoff re-mints and the SPA clears the cookie.
+    it 'enters the handoff on a malformed session cookie rather than flushing' do
       cookies['cw_d_session_info'] = 'not-json'
       with_modified_env(**sso_env) do
         get '/app', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
-        expect(response).to have_http_status(:success)
+        expect(response).to redirect_to('/auth/sso/proxy-login')
       end
     end
 
@@ -146,6 +201,44 @@ RSpec.describe 'mPass session reconciliation', type: :request do
       with_modified_env(**sso_env) do
         put '/api/v1/profile', params: { profile: { email: 'hijack@example.com' } }, headers: token_a
         expect(user_a.reload.email).to eq('a@askii.ai')
+      end
+    end
+  end
+
+  # The cw_d_session_info cookie is JS-readable by design (the SPA must build its
+  # request headers from it), so its contents are attacker-reachable via XSS and
+  # corruptible by the user. Valid JSON that is not an object — null, [1,2], 123 —
+  # parses cleanly and then raises on []('uid'). Unguarded that 500s EVERY document
+  # request, making the dashboard unreachable until the cookie is cleared by hand.
+  describe 'hostile session cookie' do
+    hostile_cookies = [
+      'null',
+      '[1,2]',
+      '123',
+      '"a-bare-string"',
+      'not-json',
+      '{"uid":{"nested":1}}',
+      '{"uid":[1]}'
+    ].freeze
+
+    hostile_cookies.each do |payload|
+      it "serves rather than crashing on cw_d_session_info=#{payload}" do
+        cookies['cw_d_session_info'] = CGI.escape(payload)
+        with_modified_env(**sso_env) do
+          get '/app', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
+          expect(response.status).to be < 500
+        end
+      end
+    end
+
+    it 'treats an unusable cookie as no session, never as a mismatch' do
+      cookies['cw_d_session_info'] = CGI.escape('null')
+      with_modified_env(**sso_env) do
+        get '/app', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
+        # No readable identity => the entry path, which re-mints and lets the SPA
+        # replace the cookie. What must NOT happen is a crash, or a mismatch flush
+        # decided from a value that never identified anyone.
+        expect(response).to redirect_to('/auth/sso/proxy-login')
       end
     end
   end

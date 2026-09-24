@@ -35,9 +35,43 @@ RSpec.describe 'local-credential endpoints under SSO', type: :request do
       expect(response).to have_http_status(:not_found)
     end
 
+    it 'refuses installation onboarding while the flag is set' do
+      Redis::Alfred.set(Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING, true)
+      post '/installation/onboarding', params: { user: { name: 'x', email: 'x@x.io', password: 'Password1!' } }
+      expect(response).to have_http_status(:not_found)
+    ensure
+      Redis::Alfred.delete(Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING)
+    end
+
     it 'refuses confirmation resend' do
       post '/resend_confirmation', params: { email: user.email }
       expect(response).to have_http_status(:not_found)
+    end
+
+    # The sharpest of the set for a fork that pre-dates SSO: every account created
+    # before the integration still has a working local password, and the form the
+    # SPA used to render is only an affordance — this endpoint answers curl.
+    it 'refuses a password login' do
+      post '/auth/sign_in', params: { email: user.email, password: 'Password1!' }
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it 'refuses a password login sent as credential headers' do
+      post '/auth/sign_in', headers: { 'email' => user.email, 'password' => 'Password1!' }
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it 'refuses an MFA verification' do
+      post '/auth/sign_in', params: { mfa_token: 'some-token', otp_code: '123456' }
+      expect(response).to have_http_status(:not_found)
+    end
+
+    # The gate must be scoped to local credentials only: the handoff re-enters this
+    # same action, and a blanket 404 here would break login entirely.
+    it 'still accepts the handoff token on the same endpoint' do
+      token = user.generate_sso_auth_token
+      post '/auth/sign_in', params: { email: user.email, sso_auth_token: token }
+      expect(response).to have_http_status(:success)
     end
 
     it 'leaves the SSO handoff itself reachable' do
@@ -55,6 +89,11 @@ RSpec.describe 'local-credential endpoints under SSO', type: :request do
     it 'still serves the password-reset request' do
       post '/auth/password', params: { email: user.email }
       expect(response).not_to have_http_status(:not_found)
+    end
+
+    it 'still accepts a password login' do
+      post '/auth/sign_in', params: { email: user.email, password: user.password }
+      expect(response).to have_http_status(:success)
     end
   end
 end
