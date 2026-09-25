@@ -12,8 +12,13 @@ RSpec.describe 'mPass session reconciliation', type: :request do
 
   describe 'Path A — document request (DashboardController)' do
     # A document request carries the cw_d_session_info cookie, not auth headers.
+    # Encoded exactly as js-cookie 3 writes it: encodeURIComponent, then these
+    # characters put back raw — so `+` and `@` reach the server unencoded.
+    # `cookies.merge` sends the value as-is; `cookies[]=` would escape it again.
     def with_session_cookie(email)
-      cookies['cw_d_session_info'] = CGI.escape({ uid: email }.to_json)
+      encoded = ERB::Util.url_encode({ uid: email }.to_json)
+                         .gsub(/%(2[346BF]|3[AC-F]|40|5[BDE]|60|7[BCD])/) { URI.decode_uri_component(Regexp.last_match(0)) }
+      cookies.merge("cw_d_session_info=#{encoded}")
     end
 
     it 'serves normally when the proxy identity MATCHES the session (mandatory test 1)' do
@@ -90,6 +95,16 @@ RSpec.describe 'mPass session reconciliation', type: :request do
       with_session_cookie('A@Askii.ai ')
       with_modified_env(**sso_env) do
         get '/app', headers: { 'X-Auth-Request-Email' => '  a@ASKII.AI  ' }
+        expect(response).to have_http_status(:success)
+      end
+    end
+
+    # Rack form-decodes cookies (`+` → space); a plus-addressed user must not loop.
+    it 'treats a plus-addressed identity as a MATCH' do
+      create(:user, email: 'a+b@askii.ai', account: account)
+      with_session_cookie('a+b@askii.ai')
+      with_modified_env(**sso_env) do
+        get '/app', headers: { 'X-Auth-Request-Email' => 'a+b@askii.ai' }
         expect(response).to have_http_status(:success)
       end
     end
@@ -298,7 +313,7 @@ RSpec.describe 'mPass session reconciliation', type: :request do
 
     hostile_cookies.each do |payload|
       it "serves rather than crashing on cw_d_session_info=#{payload}" do
-        cookies['cw_d_session_info'] = CGI.escape(payload)
+        cookies.merge("cw_d_session_info=#{ERB::Util.url_encode(payload)}")
         with_modified_env(**sso_env) do
           get '/app', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
           expect(response.status).to be < 500
@@ -307,7 +322,7 @@ RSpec.describe 'mPass session reconciliation', type: :request do
     end
 
     it 'treats an unusable cookie as no session, never as a mismatch' do
-      cookies['cw_d_session_info'] = CGI.escape('null')
+      cookies.merge('cw_d_session_info=null')
       with_modified_env(**sso_env) do
         get '/app', headers: { 'X-Auth-Request-Email' => 'b@askii.ai' }
         # No readable identity => the entry path, which re-mints and lets the SPA

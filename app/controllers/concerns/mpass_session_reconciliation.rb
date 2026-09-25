@@ -76,10 +76,14 @@ module MpassSessionReconciliation
   end
 
   def mpass_session_email_from_cookie
-    raw = cookies['cw_d_session_info']
+    raw = raw_session_cookie
     return nil if raw.blank?
 
-    payload = JSON.parse(CGI.unescape(raw))
+    # js-cookie writes `+` and `@` unencoded and reads with decodeURIComponent.
+    # Rack's `cookies` decodes as form data (`+` → space), which mangles
+    # `a+b@corp.com` into a permanent mismatch, so decode the raw value the way
+    # js-cookie does.
+    payload = JSON.parse(URI.decode_uri_component(raw))
     # Valid JSON is not necessarily an object: `null`, `[1,2]` and `123` all parse
     # cleanly and then raise on []('uid') — NoMethodError, TypeError, TypeError.
     # This cookie is JS-readable by design, so its contents are attacker-reachable
@@ -91,9 +95,19 @@ module MpassSessionReconciliation
     return nil unless uid.is_a?(String)
 
     Mpass::ProxyIdentity.normalise(uid)
-  rescue JSON::ParserError
-    # A malformed cookie tells us nothing about identity. Treat it as "no session"
-    # rather than as a mismatch: a spurious flush would log out a valid user.
+  rescue JSON::ParserError, ArgumentError
+    # A malformed cookie (bad JSON or bad %-encoding) tells us nothing about
+    # identity. Treat it as "no session" rather than as a mismatch: a spurious
+    # flush would log out a valid user.
+    nil
+  end
+
+  # First match wins, as in Rack::Utils.parse_cookies_header.
+  def raw_session_cookie
+    request.get_header('HTTP_COOKIE').to_s.split(/; */).each do |pair|
+      name, value = pair.split('=', 2)
+      return value if name == 'cw_d_session_info'
+    end
     nil
   end
 end
